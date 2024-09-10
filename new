@@ -1,0 +1,63 @@
+float32x4x4_t sum = {vdupq_n_f32(0.0f), vdupq_n_f32(0.0f), vdupq_n_f32(0.0f), vdupq_n_f32(0.0f)};
+float32x4_t dot5 = vdupq_n_f32(0.5f);
+float32x4_t const_255 = vdupq_n_f32(255.0f);
+
+for (int i = 0; i < d; i += 16) {
+    // 加载 16 个 uint8_t 并转换为 4 个 float32x4_t 向量
+    uint8x16_t zz = vld1q_u8(y + i);
+    
+    // 将每 8 个 uint8_t 扩展为 16 个 32 位整数，然后再转换为浮点数
+    uint16x8_t z0 = vmovl_u8(vget_low_u8(zz));  // 转换前 8 个值
+    uint16x8_t z1 = vmovl_u8(vget_high_u8(zz)); // 转换后 8 个值
+
+    float32x4_t yy0 = vcvtq_f32_u32(vmovl_u16(vget_low_u16(z0)));   // 前 4 个 uint8 转换为 float
+    float32x4_t yy1 = vcvtq_f32_u32(vmovl_u16(vget_high_u16(z0)));  // 中间 4 个 uint8 转换为 float
+    float32x4_t yy2 = vcvtq_f32_u32(vmovl_u16(vget_low_u16(z1)));   // 后 4 个 uint8 转换为 float
+    float32x4_t yy3 = vcvtq_f32_u32(vmovl_u16(vget_high_u16(z1)));  // 最后 4 个 uint8 转换为 float
+
+    // 加 0.5f
+    yy0 = vaddq_f32(yy0, dot5);
+    yy1 = vaddq_f32(yy1, dot5);
+    yy2 = vaddq_f32(yy2, dot5);
+    yy3 = vaddq_f32(yy3, dot5);
+
+    // 加载 mi 和 dif
+    float32x4_t mi0 = vld1q_f32(mi + i);
+    float32x4_t mi1 = vld1q_f32(mi + i + 4);
+    float32x4_t mi2 = vld1q_f32(mi + i + 8);
+    float32x4_t mi3 = vld1q_f32(mi + i + 12);
+
+    float32x4_t dif0 = vld1q_f32(dif + i);
+    float32x4_t dif1 = vld1q_f32(dif + i + 4);
+    float32x4_t dif2 = vld1q_f32(dif + i + 8);
+    float32x4_t dif3 = vld1q_f32(dif + i + 12);
+
+    // yy * dif + mi * 255
+    yy0 = vmlaq_f32(vmulq_f32(mi0, const_255), yy0, dif0);
+    yy1 = vmlaq_f32(vmulq_f32(mi1, const_255), yy1, dif1);
+    yy2 = vmlaq_f32(vmulq_f32(mi2, const_255), yy2, dif2);
+    yy3 = vmlaq_f32(vmulq_f32(mi3, const_255), yy3, dif3);
+
+    // 加载 x
+    float32x4_t xx0 = vld1q_f32(x + i);
+    float32x4_t xx1 = vld1q_f32(x + i + 4);
+    float32x4_t xx2 = vld1q_f32(x + i + 8);
+    float32x4_t xx3 = vld1q_f32(x + i + 12);
+
+    // 计算 d = (xx * 255) - yy
+    float32x4_t d0 = vsubq_f32(vmulq_f32(xx0, const_255), yy0);
+    float32x4_t d1 = vsubq_f32(vmulq_f32(xx1, const_255), yy1);
+    float32x4_t d2 = vsubq_f32(vmulq_f32(xx2, const_255), yy2);
+    float32x4_t d3 = vsubq_f32(vmulq_f32(xx3, const_255), yy3);
+
+    // sum += d * d
+    sum.val[0] = vmlaq_f32(sum.val[0], d0, d0);
+    sum.val[1] = vmlaq_f32(sum.val[1], d1, d1);
+    sum.val[2] = vmlaq_f32(sum.val[2], d2, d2);
+    sum.val[3] = vmlaq_f32(sum.val[3], d3, d3);
+}
+
+// Reduce sum
+float32x4_t sum_total = vaddq_f32(vaddq_f32(sum.val[0], sum.val[1]), vaddq_f32(sum.val[2], sum.val[3]));
+float result = vaddvq_f32(sum_total);  // 水平加和
+return result;
